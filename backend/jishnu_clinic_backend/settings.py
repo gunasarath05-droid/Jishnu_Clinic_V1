@@ -97,7 +97,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'django_mongodb_backend',
         'NAME': 'jishnu_clinic',
-        'HOST': 'mongodb+srv://gunasarath2_db_user:mvGNbDRdbithSvzA@cluster0.ffujos9.mongodb.net/',
+        'HOST': 'mongodb+srv://gunasarath2_db_user:mvGNbDRdbithSvzA@cluster0.ffujos9.mongodb.net/?retryWrites=true&w=majority&connectTimeoutMS=5000&serverSelectionTimeoutMS=5000',
     }
 }
 
