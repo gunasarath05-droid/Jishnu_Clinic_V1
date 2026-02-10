@@ -29,9 +29,13 @@ SECRET_KEY = 'django-insecure-*s-j#7r#n11av5*)9f2$853xkj3hpuu$zloe4qs#+r97@6zq&b
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['*', 'jishnu-clinic-v1.onrender.com', 'jishnu-clinic-v1.vercel.app']
 
 CORS_ALLOW_ALL_ORIGINS = True
+CSRF_TRUSTED_ORIGINS = [
+    'https://jishnu-clinic-v1.onrender.com',
+    'https://jishnu-clinic-v1.vercel.app',
+]
 
 
 # Application definition
