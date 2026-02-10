@@ -11,6 +11,10 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import django_mongodb_backend
+
+# Default primary key field type for MongoDB
+DEFAULT_AUTO_FIELD = 'django_mongodb_backend.fields.ObjectIdAutoField'
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,6 +37,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 # Application definition
 
 INSTALLED_APPS = [
+    'django_mongodb_backend',
     'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -85,8 +90,9 @@ WSGI_APPLICATION = 'jishnu_clinic_backend.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django_mongodb_backend',
+        'NAME': 'jishnu_clinic',
+        'HOST': 'mongodb+srv://gunasarath2_db_user:mvGNbDRdbithSvzA@cluster0.ffujos9.mongodb.net/',
     }
 }
 
@@ -168,4 +174,7 @@ JAZZMIN_UI_TWEAKS = {
     #"dark_mode_theme": "darkly", # Optional if we want dark mode support
 }
 
-# Default primary key field type
+# Default primary key field type for MongoDB
+DEFAULT_AUTO_FIELD = 'django_mongodb_backend.fields.ObjectIdAutoField'
+
+SILENCED_SYSTEM_CHECKS = ['mongodb.E001']
