@@ -212,3 +212,27 @@ LOGGING = {
         },
     },
 }
+
+# --- MongoDB Compatibility Patches ---
+# Fix for "Model instances without primary key value are unhashable" and
+# "Cannot force an update in save() with no primary key" errors.
+from django.db.models import Model
+
+def safe_hash(self):
+    if self.pk is None:
+        return id(self)
+    try:
+        return hash(self.pk)
+    except TypeError:
+        return id(self)
+
+Model.__hash__ = safe_hash
+
+# Ensure pk attribute is correctly mapped even if initialization is mid-signal
+_original_init = Model.__init__
+def safe_init(self, *args, **kwargs):
+    _original_init(self, *args, **kwargs)
+    if hasattr(self, '_id') and (not hasattr(self, 'pk') or self.pk is None):
+        self.pk = self._id
+
+Model.__init__ = safe_init
