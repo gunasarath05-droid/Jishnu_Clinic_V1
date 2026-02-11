@@ -29,8 +29,10 @@ class Appointment(models.Model):
 class BlogPost(models.Model):
     title = models.CharField(max_length=200)
     category = models.CharField(max_length=100)
+    catColor = models.CharField(max_length=50, default='bg-blue-100 text-blue-600')
     author = models.CharField(max_length=100)
-    image = models.ImageField(upload_to='blog_images/')
+    avatar = models.URLField(max_length=500, blank=True, null=True)
+    image = models.URLField(max_length=500)
     content = models.TextField() # Rich text or HTML
     date = models.DateField()
     

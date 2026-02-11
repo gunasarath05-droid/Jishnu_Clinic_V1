@@ -1,12 +1,38 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Button from '../../../components/ui/Button';
 import { Calendar, User, ArrowRight, Activity } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { blogs } from '../../../data/blogs';
+import apiClient from '../../../api/client';
+import { ENDPOINTS } from '../../../api/endpoints';
 
 const Blog = ({ limit, showHeader = true }) => {
+    const [blogs, setBlogs] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchBlogs = async () => {
+            try {
+                const response = await apiClient.get(ENDPOINTS.BLOGS);
+                setBlogs(response.data);
+            } catch (error) {
+                console.error("Failed to fetch blogs for home:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchBlogs();
+    }, []);
+
     // If limit is provided, slice the array; otherwise show all
     const displayedBlogs = limit ? blogs.slice(0, limit) : blogs;
+
+    if (loading && blogs.length === 0) {
+        return (
+            <div className="py-20 text-center">
+                <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+            </div>
+        );
+    }
 
     return (
         <section className="py-16 sm:py-20 lg:py-24 bg-white overflow-hidden" id="blog">

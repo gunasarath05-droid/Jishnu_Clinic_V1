@@ -11,11 +11,11 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-import django_mongodb_backend
+import os
+import traceback
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -34,11 +34,11 @@ CSRF_TRUSTED_ORIGINS = [
     'https://jishnu-clinic-v1.vercel.app',
 ]
 
-
 # Application definition
 
 INSTALLED_APPS = [
     'django_mongodb_backend',
+    'api',
     'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -50,13 +50,11 @@ INSTALLED_APPS = [
     # Third party
     'rest_framework',
     'corsheaders',
-
-    # Local
-    'api',
 ]
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware', # CORS Middleware
+    'jishnu_clinic_backend.settings.ErrorLoggingMiddleware', # Custom error logging
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -86,7 +84,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'jishnu_clinic_backend.wsgi.application'
 
-
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
@@ -97,7 +94,6 @@ DATABASES = {
         'HOST': 'mongodb+srv://gunasarath2_db_user:mvGNbDRdbithSvzA@cluster0.ffujos9.mongodb.net/?retryWrites=true&w=majority&connectTimeoutMS=5000&serverSelectionTimeoutMS=5000',
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -117,18 +113,13 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
@@ -183,7 +174,6 @@ JAZZMIN_SETTINGS = {
 
 JAZZMIN_UI_TWEAKS = {
     "theme": "flatly",
-    #"dark_mode_theme": "darkly", # Optional if we want dark mode support
 }
 
 # Default primary key field type for MongoDB
@@ -195,44 +185,229 @@ SILENCED_SYSTEM_CHECKS = ['mongodb.E001']
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
         },
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'django_debug.log'),
+            'formatter': 'verbose',
+        },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': ['console', 'file'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
-            'level': 'ERROR',
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
             'propagate': True,
         },
     },
 }
 
 # --- MongoDB Compatibility Patches ---
-# Fix for "Model instances without primary key value are unhashable" and
-# "Cannot force an update in save() with no primary key" errors.
+
 from django.db.models import Model
+from django.db.models.fields import AutoField, IntegerField
+try:
+    from bson import ObjectId
+except ImportError:
+    ObjectId = None
 
-def safe_hash(self):
-    if self.pk is None:
-        return id(self)
+# 1. Patch AutoField/IntegerField to handle ObjectId
+_original_integer_to_python = IntegerField.to_python
+def safe_to_python(self, value):
+    if ObjectId and isinstance(value, ObjectId):
+        return value
     try:
-        return hash(self.pk)
-    except TypeError:
-        return id(self)
+        return _original_integer_to_python(self, value)
+    except (TypeError, ValueError):
+        if ObjectId and isinstance(value, ObjectId):
+            return value
+        raise
 
-Model.__hash__ = safe_hash
+AutoField.to_python = safe_to_python
+IntegerField.to_python = safe_to_python
 
-# Ensure pk attribute is correctly mapped even if initialization is mid-signal
+# 2. Patch AutoField.get_prep_value to NOT convert ObjectId to int
+_original_get_prep_value = AutoField.get_prep_value
+def safe_get_prep_value(self, value):
+    if ObjectId and isinstance(value, ObjectId):
+        return value
+    return _original_get_prep_value(self, value)
+AutoField.get_prep_value = safe_get_prep_value
+
+# 3. Patch Model methods to ensure pk/id sync
 _original_init = Model.__init__
 def safe_init(self, *args, **kwargs):
     _original_init(self, *args, **kwargs)
-    if hasattr(self, '_id') and (not hasattr(self, 'pk') or self.pk is None):
-        self.pk = self._id
+    if not getattr(self, 'pk', None):
+        if hasattr(self, '_id') and self._id:
+            self.pk = self._id
+        elif 'id' in self.__dict__ and self.id:
+            self.pk = self.id
 
 Model.__init__ = safe_init
+
+_original_save = Model.save
+def safe_save(self, *args, **kwargs):
+    if not getattr(self, 'pk', None):
+        if hasattr(self, 'id') and getattr(self, 'id'):
+            self.pk = getattr(self, 'id')
+        elif hasattr(self, '_id') and getattr(self, '_id'):
+            self.pk = getattr(self, '_id')
+            
+    try:
+        return _original_save(self, *args, **kwargs)
+    except ValueError as e:
+        if "no primary key" in str(e):
+             if hasattr(self, 'id') and getattr(self, 'id'):
+                 self.pk = getattr(self, 'id')
+                 return _original_save(self, *args, **kwargs)
+        raise
+
+Model.save = safe_save
+
+_original_from_db = Model.from_db
+@classmethod
+def safe_from_db(cls, db, field_names, values):
+    instance = _original_from_db.__func__(cls, db, field_names, values)
+    if getattr(instance, 'pk', None) is None:
+        # Aggressively look for _id or id in __dict__
+        potential_id = instance.__dict__.get('_id') or instance.__dict__.get('id')
+        if potential_id:
+            instance.pk = potential_id
+            if 'id' in instance.__dict__:
+                instance.id = potential_id
+    return instance
+
+Model.from_db = safe_from_db
+
+_original_hash = Model.__hash__
+def safe_hash(self):
+    if self.pk is None:
+        if hasattr(self, 'id') and self.id:
+            return hash(self.id)
+        if hasattr(self, '_id') and self._id:
+            return hash(self._id)
+    return _original_hash(self)
+
+Model.__hash__ = safe_hash
+
+# 4. Global fixup for all models
+_original_deconstruct = AutoField.deconstruct
+def safe_deconstruct(self):
+    try:
+        return _original_deconstruct(self)
+    except KeyError:
+        # Fallback if blank/editable are missing
+        from django.db.models.fields import Field
+        name, path, args, kwargs = Field.deconstruct(self)
+        kwargs.pop('blank', None)
+        kwargs.pop('editable', None)
+        return name, path, args, kwargs
+
+AutoField.deconstruct = safe_deconstruct
+
+def fix_all_models():
+    try:
+        from django.apps import apps
+        from django_mongodb_backend.fields import ObjectIdAutoField
+        if not apps.ready:
+            return
+        for model in apps.get_models():
+            pk = model._meta.pk
+            if pk:
+                # Force _id column for all PKs in MongoDB
+                if pk.db_column != '_id':
+                    pk.db_column = '_id'
+                    if 'column' in pk.__dict__:
+                        del pk.__dict__['column']
+                    pk.column = '_id'
+                
+                # Only swap type for standard AutoFields
+                if type(pk) is AutoField and not isinstance(pk, ObjectIdAutoField):
+                    pk.__class__ = ObjectIdAutoField
+                
+                # Clear meta cache
+                model._meta._expire_cache()
+                
+            # Special case for ContentType cache
+            if model._meta.label == 'contenttypes.ContentType':
+                try:
+                    model.objects.clear_cache()
+                except:
+                    try:
+                        model.objects._cache.clear()
+                    except:
+                        pass
+    except Exception as e:
+        import logging
+        logging.getLogger('django').error(f"Error in fix_all_models: {e}")
+
+class ErrorLoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        try:
+            fix_all_models()
+        except:
+            pass
+
+    def __call__(self, request):
+        try:
+            return self.get_response(request)
+        except Exception as e:
+            import traceback
+            import logging
+            logger = logging.getLogger('django')
+            logger.error(f"Internal Server Error: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise e
+
+# 5. Patch SQLCompiler to force _id for PKs on built-in models
+from django_mongodb_backend.compiler import SQLCompiler
+_original_execute_sql = SQLCompiler.execute_sql
+def patched_execute_sql(self, *args, **kwargs):
+    if self.query.model and self.query.model._meta.label.startswith(('admin.', 'auth.', 'contenttypes.', 'sessions.')):
+        pk = self.query.model._meta.pk
+        if pk and pk.db_column != '_id':
+            pk.db_column = '_id'
+            if 'column' in pk.__dict__: del pk.__dict__['column']
+            pk.column = '_id'
+    return _original_execute_sql(self, *args, **kwargs)
+SQLCompiler.execute_sql = patched_execute_sql
+
+# 6. Patch DatabaseWrapper.auto_encryption_opts
+from django_mongodb_backend.base import DatabaseWrapper
+_original_auto_encryption_opts = DatabaseWrapper.auto_encryption_opts
+def safe_auto_encryption_opts(self):
+    try:
+        return self.connection._options.auto_encryption_opts
+    except AttributeError:
+        return None
+DatabaseWrapper.auto_encryption_opts = property(safe_auto_encryption_opts)
+
+# Execute global fix
+fix_all_models()
+
+# 7. Patch Apps.populate to ensure fixes run after all apps load
+from django.apps import apps
+_original_populate = apps.populate
+def patched_populate(self, installed_apps=None):
+    _original_populate(installed_apps)
+    fix_all_models()
+
+try:
+    apps.populate = patched_populate.__get__(apps, type(apps))
+except Exception:
+    pass
